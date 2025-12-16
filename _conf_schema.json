@@ -1,0 +1,18 @@
+{
+  "supabase_url": {
+    "description": "SupaBase project URL",
+    "type": "string"
+  },
+  "supabase_key": {
+    "description": "SupaBase key",
+    "type": "string"
+  },
+  "aiocqhttp_id": {
+    "description": "qq id",
+    "type": "string"
+  },
+  "telegram_id": {
+    "description": "telegram id",
+    "type": "string"
+  }
+}
