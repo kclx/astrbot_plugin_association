@@ -90,8 +90,8 @@ pip install -r requirements.txt
 {
   "supabase_url": "你的 Supabase 项目 URL",
   "supabase_key": "你的 Supabase API Key",
-  "aiocqhttp_id": "QQ 平台 ID（机器人QQ号）",
-  "telegram_id": "Telegram 平台 ID（机器人id）"
+  "aiocqhttp_id": "QQ 平台 ID（机器人名称）",
+  "telegram_id": "Telegram 平台 ID（机器人名称）"
 }
 ```
 
