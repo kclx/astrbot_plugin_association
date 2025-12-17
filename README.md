@@ -186,6 +186,26 @@ AI：（调用 publish_request 工具）
 
 Orlando
 
+## 常见问题
+
+### 中文任务标题和描述出现文字替换问题
+
+**现象**：发布任务时，中文文本被替换成其他汉字，例如：
+- 输入：`"寻找失落的宝藏"`
+- 实际保存：`"搜索失較的存货"`
+
+**原因**：这是 LLM 在生成工具调用参数时的 token 选择问题（不是编码问题）。
+
+**解决方案**：
+
+1. **立即有效**：在 AstrBot 的 Provider 配置中将 `temperature` 设置为 `0.0`
+2. **补充措施**：在 System Prompt 中添加"调用工具时必须精确提取用户原文"的约束
+3. **长期方案**：如问题持续，考虑切换到对中文支持更好的模型（如 GPT-4、Claude 3.5、Qwen2.5-72B+）
+
+详细说明和诊断步骤请参考：[修复中文文本替换问题指南](docs/fix-chinese-garbling.md)
+
 ## 相关文档
 
 - [数据库表结构](docs/database-schema.md)
+- [修复中文文本替换问题](docs/fix-chinese-garbling.md)
+- [技术诊断报告](docs/encoding-issue-diagnosis.md)
