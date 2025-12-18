@@ -7,11 +7,13 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api import logger
 from astrbot.core.config.astrbot_config import AstrBotConfig
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+from astrbot.api import message_components as Comp
 
 from .engine.supa_client import SupabaseClient
 from .engine.association_client import AssociationClient
 from .utils.message_utils import MessageUtils
 from .utils.file_utils import FileUtils
+from .utils.session_manager import SessionManager
 from .handlers.command_handlers import CommandHandlers
 from .handlers.llm_handlers import LLMHandlers
 from .handlers.event_handlers import EventHandlers
@@ -39,7 +41,10 @@ class AssociationPlugin(Star):
         self.ass_client = AssociationClient(self.supa_client)
 
         # 初始化工具类
-        self.message_utils = MessageUtils(self.context, self.config)
+        self.session_manager = SessionManager(self.SAVE_DIR)
+        self.message_utils = MessageUtils(
+            self.context, self.config, self.session_manager
+        )
         self.file_utils = FileUtils(self.SAVE_DIR)
 
         # 初始化处理器
@@ -56,20 +61,101 @@ class AssociationPlugin(Star):
         """插件销毁方法"""
         pass
 
+    # ==================== 对话管理辅助方法 ====================
+
+    async def _ensure_guild_conversation(
+        self, event: AstrMessageEvent
+    ) -> tuple[bool, str]:
+        """确保用户在冒险者工会专属对话中
+
+        如果用户还没有专属对话，会自动创建一个。
+        这个对话与用户的日常聊天对话隔离。
+
+        Args:
+            event: 消息事件对象
+
+        Returns:
+            tuple[bool, str]: (is_first_time, conversation_id)
+                - is_first_time: 是否是首次创建专属对话
+                - conversation_id: 对话 ID
+        """
+        try:
+            umo = event.unified_msg_origin
+
+            # 检查是否已有插件专属的 conversation
+            existing_cid = self.session_manager.get_user_conversation(umo)
+            if existing_cid:
+                # 验证这个 conversation 是否还存在
+                try:
+                    conversation = (
+                        await self.context.conversation_manager.get_conversation(
+                            umo, existing_cid
+                        )
+                    )
+                    if conversation:
+                        return False, existing_cid
+                except Exception:
+                    logger.warning(
+                        f"用户 {umo} 的专属对话 {existing_cid} 不存在，将创建新对话"
+                    )
+
+            # 创建新的插件专属 conversation
+            new_cid = await self.context.conversation_manager.new_conversation(
+                umo,
+                event.get_platform_id(),
+                title="冒险者工会",
+            )
+
+            # 保存到 SessionManager
+            self.session_manager.set_user_conversation(umo, new_cid)
+
+            # 切换到这个新对话
+            await self.context.conversation_manager.switch_conversation(umo, new_cid)
+
+            logger.info(f"为用户 {umo} 创建了冒险者工会专属对话: {new_cid[:8]}...")
+            return True, new_cid
+        except Exception as e:
+            logger.error(f"创建/获取用户专属 conversation 失败: {e}")
+            return False, ""
+
+    def _create_first_time_notice(self, cid: str) -> str:
+        """创建首次创建专属对话的提示消息
+
+        Args:
+            cid: 对话 ID
+
+        Returns:
+            str: 提示消息文本
+        """
+        return (
+            f"✨ 已为您创建冒险者工会专属对话（{cid[:8]}...）\n"
+            "所有工会相关的对话都会在这个专属空间中进行。\n"
+            "如需切换回日常聊天，请使用 /ls 查看对话列表，然后用 /switch 序号 切换。\n"
+            "---"
+        )
+
     # ==================== 命令处理器 ====================
+
     @filter.command("我要当冒险者")
     async def create_adventurer(self, event: AstrMessageEvent):
         """注册为冒险者"""
+        is_first_time, cid = await self._ensure_guild_conversation(event)
+        if is_first_time:
+            yield event.plain_result(self._create_first_time_notice(cid))
         async for result in self.command_handlers.create_adventurer(event):
             yield result
 
     @filter.command("我要成为委托人")
     async def create_clienter(self, event: AstrMessageEvent):
         """注册为委托人"""
+        is_first_time, cid = await self._ensure_guild_conversation(event)
+        if is_first_time:
+            yield event.plain_result(self._create_first_time_notice(cid))
         async for result in self.command_handlers.create_clienter(event):
             yield result
 
     # ==================== LLM 工具处理器 ====================
+
     @filter.llm_tool(name="publish_request")
     async def llm_tool(
         self,
@@ -87,6 +173,7 @@ class AssociationPlugin(Star):
             reward(number): 奖励金额，默认为 0.0
             deadline(string): 任务截止时间，ISO 格式字符串，例如 "2025-12-31T23:59:59"
         """
+        await self._ensure_guild_conversation(event)
         return await self.llm_handlers.publish_request(
             event, title, description, reward, deadline
         )
@@ -97,6 +184,7 @@ class AssociationPlugin(Star):
 
         Args:
         """
+        await self._ensure_guild_conversation(event)
         return await self.llm_handlers.fetch_quests_published(event)
 
     @filter.llm_tool("accept_task")
@@ -106,6 +194,7 @@ class AssociationPlugin(Star):
         Args:
             quest_id(string): 要接取的委托任务的唯一标识符（UUID）
         """
+        await self._ensure_guild_conversation(event)
         return await self.llm_handlers.accept_task(event, quest_id)
 
     @filter.llm_tool("submit_quest")
@@ -114,6 +203,7 @@ class AssociationPlugin(Star):
 
         Args:
         """
+        await self._ensure_guild_conversation(event)
         return await self.llm_handlers.submit_quest(event)
 
     @filter.llm_tool("confirm_quest")
@@ -123,6 +213,7 @@ class AssociationPlugin(Star):
         Args:
             quest_id(string): 任务唯一标识符（UUID）
         """
+        await self._ensure_guild_conversation(event)
         return await self.llm_handlers.confirm_quest(event, quest_id)
 
     @filter.llm_tool("adventurer_rest")
@@ -131,6 +222,7 @@ class AssociationPlugin(Star):
 
         Args:
         """
+        await self._ensure_guild_conversation(event)
         return await self.llm_handlers.adventurer_rest(event)
 
     @filter.llm_tool("adventurer_idle")
@@ -139,6 +231,7 @@ class AssociationPlugin(Star):
 
         Args:
         """
+        await self._ensure_guild_conversation(event)
         return await self.llm_handlers.adventurer_idle(event)
 
     @filter.llm_tool("adventurer_quit")
@@ -147,7 +240,10 @@ class AssociationPlugin(Star):
 
         Args:
         """
+        await self._ensure_guild_conversation(event)
         return await self.llm_handlers.adventurer_quit(event)
+
+    # ==================== Test ====================
 
     @filter.llm_tool("test_tool")
     async def test(self, event: AstrMessageEvent) -> str:
@@ -157,9 +253,17 @@ class AssociationPlugin(Star):
         """
         return await self.llm_handlers.test(event)
 
-    # ==================== 事件处理器 ====================
-    # @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)
-    # async def on_all_message(self, event: AstrMessageEvent):
-    #     """处理所有私聊消息，自动下载文件"""
-    #     async for result in self.event_handlers.on_all_message(event):
-    #         yield result
+    @filter.command("test")
+    async def testChat(self, event: AstrMessageEvent):
+        chain = [
+            Comp.Plain("来看这个图："),
+            Comp.Image.fromURL(
+                "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRb-CIA1N7aGu8ouN7NGSvmXq46hKPOqTD45w&s"
+            ),
+            Comp.Image.fromFileSystem(f"{self.SAVE_DIR}/2481534548/图片-2.jpg"),
+            Comp.File(
+                file=f"{self.SAVE_DIR}/2481534548/雅音宫羽.txt", name="雅音宫羽.txt"
+            ),
+            Comp.Plain("这是一个图片。"),
+        ]
+        yield event.chain_result(chain)
