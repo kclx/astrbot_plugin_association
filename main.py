@@ -141,6 +141,12 @@ class AssociationPlugin(Star):
         """注册为冒险者"""
         is_first_time, cid = await self._ensure_guild_conversation(event)
         if is_first_time:
+            # 设置冒险者人格
+            adventurer_personality_id = self.config.get("adventurer_personality_id", None)
+            if adventurer_personality_id:
+                await self.context.conversation_manager.update_conversation(
+                    event.unified_msg_origin, cid, persona_id=adventurer_personality_id
+                )
             yield event.plain_result(self._create_first_time_notice(cid))
         async for result in self.command_handlers.create_adventurer(event):
             yield result
@@ -150,6 +156,12 @@ class AssociationPlugin(Star):
         """注册为委托人"""
         is_first_time, cid = await self._ensure_guild_conversation(event)
         if is_first_time:
+            # 设置委托人人格
+            clienter_personality_id = self.config.get("clienter_personality_id", None)
+            if clienter_personality_id:
+                await self.context.conversation_manager.update_conversation(
+                    event.unified_msg_origin, cid, persona_id=clienter_personality_id
+                )
             yield event.plain_result(self._create_first_time_notice(cid))
         async for result in self.command_handlers.create_clienter(event):
             yield result

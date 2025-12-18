@@ -14,5 +14,13 @@
   "telegram_id": {
     "description": "telegram id",
     "type": "string"
+  },
+  "adventurer_personality_id": {
+    "description": "冒险者人格ID",
+    "type": "string"
+  },
+  "clienter_personality_id": {
+    "description": "委托人人格ID",
+    "type": "string"
   }
 }
