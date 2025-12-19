@@ -35,8 +35,8 @@ class AssociationPlugin(Star):
         # 初始化存储位置
         self.save_dir: Path = StarTools.get_data_dir()
 
-        # 初始化数据库客户端
-        self.supa_client = SupabaseClient(
+        # 初始化数据库客户端（异步）
+        self.supa_client = await SupabaseClient.create(
             self.config.get("supabase_url", None),
             self.config.get("supabase_key", None),
         )

@@ -43,7 +43,7 @@ class LLMHandlers:
         """
         _, contact_way, contact_number = self.message_utils.get_user_identity(event)
 
-        if not self.ass_client.is_clienter(contact_way, contact_number):
+        if not await self.ass_client.is_clienter(contact_way, contact_number):
             return "您还不是委托人，无法发布任务，请先注册。"
 
         deadline_dt: datetime | None = None
@@ -53,19 +53,19 @@ class LLMHandlers:
             except ValueError:
                 return "截止时间格式错误，请使用 ISO 格式，如 2025-12-31T23:59:59"
 
-        clienter = self.supa_client.get_clienter_by_way_number(
+        clienter = await self.supa_client.get_clienter_by_way_number(
             contact_way, contact_number
         )
         if not clienter:
             return "未找到您的委托人信息，请重新注册。"
 
-        quest = self.ass_client.register_quest(
+        quest = await self.ass_client.register_quest(
             clienter.id, title, description, reward, deadline_dt
         )
         if not quest:
             return "任务发布失败，请稍后重试。"
 
-        adventurers = self.supa_client.get_adventurers_by_status(AdventurerStatus.IDLE)
+        adventurers = await self.supa_client.get_adventurers_by_status(AdventurerStatus.IDLE)
         if adventurers:
             quest_text = Quest.format_quests([quest])
             await self.message_utils.send_message_to_users(adventurers, quest_text)
@@ -79,10 +79,10 @@ class LLMHandlers:
         Args:
         """
         _, way, number = self.message_utils.get_user_identity(event)
-        adventurer = self.supa_client.get_adventurer_by_way_number(way, number)
+        adventurer = await self.supa_client.get_adventurer_by_way_number(way, number)
         if not adventurer or adventurer.status != AdventurerStatus.IDLE:
             return "您现在貌似还有任务没有完成，或者您并未注册为冒险者。"
-        quests = self.supa_client.get_available_quests()
+        quests = await self.supa_client.get_available_quests()
         if not quests:
             return "当前没有可接取的任务。"
         return Quest.format_quests(quests)
@@ -94,22 +94,22 @@ class LLMHandlers:
             quest_id(string): 要接取的委托任务的唯一标识符（UUID）
         """
         _, contact_way, contact_number = self.message_utils.get_user_identity(event)
-        if not self.ass_client.is_adventurer(contact_way, contact_number):
+        if not await self.ass_client.is_adventurer(contact_way, contact_number):
             return "你还不是冒险者"
 
-        status = self.ass_client.get_adventurer_status_by_id(
+        status = await self.ass_client.get_adventurer_status_by_id(
             contact_way, contact_number
         )
         if status != AdventurerStatus.IDLE:
             return "你已经接取了其他任务"
 
-        adv_id = self.supa_client.get_adventurer_id_by_way_number(
+        adv_id = await self.supa_client.get_adventurer_id_by_way_number(
             contact_way, contact_number
         )
         if not adv_id:
             return "无法获取冒险者ID，请重试"
 
-        quest = self.ass_client.accept_quest_by_id(quest_id, adv_id)
+        quest = await self.ass_client.accept_quest_by_id(quest_id, adv_id)
         if not quest:
             return "任务接取失败，可能已被其他人接取或任务不存在"
         return Quest.format_quests([quest])
@@ -120,13 +120,13 @@ class LLMHandlers:
         Args:
         """
         _, way, number = self.message_utils.get_user_identity(event)
-        adventurer = self.supa_client.get_adventurer_by_way_number(way, number)
+        adventurer = await self.supa_client.get_adventurer_by_way_number(way, number)
         if not adventurer:
             return "❌ 你还不是冒险者，无法提交任务。"
         if adventurer.status != AdventurerStatus.WORKING:
             return "❌ 你当前没有正在进行的任务。"
 
-        result = self.ass_client.get_running_quest_by_adventurer_id(adventurer.id)
+        result = await self.ass_client.get_running_quest_by_adventurer_id(adventurer.id)
         if not result:
             return "❌ 未找到你正在执行的任务。"
 
@@ -134,11 +134,11 @@ class LLMHandlers:
 
         if not quest.clienter_id:
             return "❌ 未找到委托人。"
-        clienter = self.supa_client.get_clienter_by_id(quest.clienter_id)
+        clienter = await self.supa_client.get_clienter_by_id(quest.clienter_id)
         if not clienter:
             return "⚠️ 任务已提交，但未找到委托人。"
 
-        updated_quest = self.ass_client.submit_quest(adventurer.id, quest.id)
+        updated_quest = await self.ass_client.submit_quest(adventurer.id, quest.id)
         if not updated_quest:
             return "❌ 任务提交失败，请检查状态或权限。"
 
@@ -155,19 +155,19 @@ class LLMHandlers:
             quest_id(string): 任务唯一标识符（UUID）
         """
         _, way, number = self.message_utils.get_user_identity(event)
-        clienter_id = self.supa_client.get_clienter_id_by_way_number(way, number)
+        clienter_id = await self.supa_client.get_clienter_id_by_way_number(way, number)
         if not clienter_id:
             return "❌ 你不是委托人，无法确认任务。"
         if not quest_id:
             return "❌ 任务 ID 不能为空。"
 
-        result = self.ass_client.confirm_quest(clienter_id, quest_id)
+        result = await self.ass_client.confirm_quest(clienter_id, quest_id)
         if not result:
             return "❌ 任务确认失败，请检查任务状态或权限。"
 
         quest, adventurer_id = result
 
-        adventurer = self.supa_client.get_adventurer_by_id(adventurer_id)
+        adventurer = await self.supa_client.get_adventurer_by_id(adventurer_id)
         if not adventurer:
             logger.warning(f"任务 {quest_id} 已确认，但冒险者 {adventurer_id} 不存在？")
             return f"🎉 任务《{quest.title}》已确认完成，但冒险者信息缺失。"
@@ -187,12 +187,16 @@ class LLMHandlers:
         Args:
         """
         _, way, number = self.message_utils.get_user_identity(event)
-        adv = self.supa_client.get_adventurer_by_way_number(way, number)
-        assert adv
+        adv = await self.supa_client.get_adventurer_by_way_number(way, number)
+        if not adv:
+            return "未找到您的冒险者信息。"
+
         if adv.status == AdventurerStatus.IDLE:
             adv.status = AdventurerStatus.REST
-            if self.supa_client.update_adventurer(adv):
+            if await self.supa_client.update_adventurer(adv):
                 return "已完成修改，享受假期吧冒险者！"
+            else:
+                return "状态修改失败，请稍后重试。"
         elif adv.status == AdventurerStatus.WORKING:
             return "您还有任务在身！"
         elif adv.status == AdventurerStatus.QUIT:
@@ -200,13 +204,15 @@ class LLMHandlers:
         elif adv.status == AdventurerStatus.REST:
             return "您已经在休息了。"
 
+        return "状态异常，请联系管理员。"
+
     async def adventurer_idle(self, event: AstrMessageEvent) -> str:
         """将冒险者状态设置为空闲，可接取任务。
 
         Args:
         """
         _, way, number = self.message_utils.get_user_identity(event)
-        adv = self.supa_client.get_adventurer_by_way_number(way, number)
+        adv = await self.supa_client.get_adventurer_by_way_number(way, number)
         if not adv:
             return "未找到您的冒险者信息。"
 
@@ -214,12 +220,14 @@ class LLMHandlers:
             return "您已经是空闲状态，可以接取任务。"
         elif adv.status in [AdventurerStatus.WORKING, AdventurerStatus.REST]:
             adv.status = AdventurerStatus.IDLE
-            if self.supa_client.update_adventurer(adv):
+            if await self.supa_client.update_adventurer(adv):
                 return "状态已恢复为空闲，可以接取任务了！"
             else:
                 return "状态恢复失败，请稍后重试。"
         elif adv.status == AdventurerStatus.QUIT:
             return "您已退出冒险者公会，无法恢复为空闲。"
+
+        return "状态异常，请联系管理员。"
 
     async def adventurer_quit(self, event: AstrMessageEvent) -> str:
         """将冒险者状态设置为退出，不再接取任务。
@@ -227,7 +235,7 @@ class LLMHandlers:
         Args:
         """
         _, way, number = self.message_utils.get_user_identity(event)
-        adv = self.supa_client.get_adventurer_by_way_number(way, number)
+        adv = await self.supa_client.get_adventurer_by_way_number(way, number)
         if not adv:
             return "未找到您的冒险者信息。"
 
@@ -235,7 +243,7 @@ class LLMHandlers:
             return "您已经退出了冒险者公会。"
         else:
             adv.status = AdventurerStatus.QUIT
-            if self.supa_client.update_adventurer(adv):
+            if await self.supa_client.update_adventurer(adv):
                 return "您已成功退出冒险者公会，每天都是假期！"
             else:
                 return "退出操作失败，请稍后重试。"
