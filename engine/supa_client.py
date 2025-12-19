@@ -2,8 +2,15 @@ import os
 
 from supabase import create_client, Client
 
-from ..domain.status import AdventurerStatus, QuestStatus
-from ..domain.vo import Adventurer, Clienter, Quest, QuestAssign, SystemLog
+from ..domain.status import AdventurerStatus, QuestAssignStatus
+from ..domain.vo import (
+    Adventurer,
+    Clienter,
+    Quest,
+    QuestAssign,
+    SystemLog,
+    QuestMaterial,
+)
 
 from astrbot.api import logger
 
@@ -15,13 +22,8 @@ class SupabaseClient:
     """
 
     def __init__(self, url: str | None = None, key: str | None = None):
-        self.url = url or os.environ.get(
-            "SUPABASE_URL", "https://thcercqjhotuzwpzzsih.supabase.co"
-        )
-        self.key = key or os.environ.get(
-            "SUPABASE_KEY",
-            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRoY2VyY3FqaG90dXp3cHp6c2loIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ1Mzk1NTMsImV4cCI6MjA4MDExNTU1M30.2uVjdGmQyzcoA4Rn29MBWncTTKB1Vi7Z9nPa6GzeyIw",
-        )
+        self.url = url
+        self.key = key
         if not self.url or not self.key:
             raise ValueError("缺少 SUPABASE_URL 或 SUPABASE_KEY")
         self.client: Client = create_client(self.url, self.key)
@@ -125,36 +127,6 @@ class SupabaseClient:
         rec = self._get_records("quest", {"clienter_id": clienter_id})
         return Quest.from_list(rec) if rec else None
 
-    def get_quest_by_adventurer_id(self, adventurer_id: str) -> Quest | None:
-        """
-        根据冒险者ID获取该冒险者当前已接取的任务（每个冒险者一次只能接一个任务）
-
-        Args:
-            adventurer_id (str): 冒险者ID
-
-        Returns:
-            Quest | None: 返回任务实例，如果未找到任务返回 None
-        """
-        rec = self._get_single_record("quest", {"adventurer_id": adventurer_id})
-        return Quest.from_dict(rec) if rec else None
-
-    def get_quest_by_adventurer_id_status(
-        self, adventurer_id: str, status: QuestStatus
-    ) -> Quest | None:
-        """
-        根据冒险者ID获取该冒险者当前已接取的任务（每个冒险者一次只能接一个任务）
-
-        Args:
-            adventurer_id (str): 冒险者ID
-
-        Returns:
-            Quest | None: 返回任务实例，如果未找到任务返回 None
-        """
-        rec = self._get_single_record(
-            "quest", {"adventurer_id": adventurer_id, "status": status.value}
-        )
-        return Quest.from_dict(rec) if rec else None
-
     # 状态相关
     def get_adventurers_by_status(
         self, status: AdventurerStatus
@@ -172,19 +144,64 @@ class SupabaseClient:
         records = self._get_records("adventurer", {"status": status.value})
         return Adventurer.from_list(records) if records else None
 
-    def get_quests_by_status(self, status: QuestStatus) -> list[Quest] | None:
+    def get_available_quests(self) -> list[Quest] | None:
         """
-        根据任务状态获取任务列表。
-
-        Args:
-            status (QuestStatus): 任务状态，例如 QuestStatus.PUBLISHED
+        获取所有可接取的任务（没有 ONGOING 状态的任务分配记录）
 
         Returns:
             list[Quest] | None: 返回任务列表，如果没有找到返回 None
         """
-        # 获取所有状态符合的任务记录
-        records = self._get_records("quest", {"status": status.value})
-        return Quest.from_list(records) if records else None
+        # 获取所有任务
+        all_quests_records = self._get_records("quest", {})
+        if not all_quests_records:
+            return None
+
+        # 获取所有 ONGOING 状态的任务分配记录
+        ongoing_assigns = self.get_quest_assigns_by_status(QuestAssignStatus.ONGOING)
+        ongoing_quest_ids = set()
+        if ongoing_assigns:
+            ongoing_quest_ids = {qa.quest_id for qa in ongoing_assigns}
+
+        # 过滤出没有 ONGOING 分配的任务
+        available_quests = [
+            Quest.from_dict(q)
+            for q in all_quests_records
+            if q["id"] not in ongoing_quest_ids
+        ]
+
+        return available_quests if available_quests else None
+
+    def get_active_quest_assign_by_adventurer(
+        self, adventurer_id: str
+    ) -> QuestAssign | None:
+        """
+        获取冒险者当前的活跃任务分配（ONGOING 状态）
+
+        Args:
+            adventurer_id (str): 冒险者ID
+
+        Returns:
+            QuestAssign | None: 返回任务分配实例，如果未找到返回 None
+        """
+        rec = self._get_single_record(
+            "quest_assign", {"adventurer_id": adventurer_id, "status": "ONGOING"}
+        )
+        return QuestAssign.from_dict(rec) if rec else None
+
+    def get_quest_assigns_by_status(
+        self, status: QuestAssignStatus
+    ) -> list[QuestAssign] | None:
+        """
+        获取特定状态的所有任务分配
+
+        Args:
+            status (QuestAssignStatus): 任务分配状态
+
+        Returns:
+            list[QuestAssign] | None: 返回任务分配列表，如果没有找到返回 None
+        """
+        records = self._get_records("quest_assign", {"status": status.value})
+        return QuestAssign.from_list(records) if records else None
 
     # ========================== 插入 ==========================
     # 冒险者相关
@@ -337,7 +354,11 @@ class SupabaseClient:
     def insert_quest_assign(self, quest_assign: QuestAssign) -> bool:
         """插入任务分配记录"""
         try:
-            res = self.client.table("quest_assign").insert(quest_assign.to_dict()).execute()
+            res = (
+                self.client.table("quest_assign")
+                .insert(quest_assign.to_dict())
+                .execute()
+            )
             return bool(getattr(res, "data", None))
         except Exception as e:
             logger.error(f"插入任务分配记录失败: {e}")
@@ -373,6 +394,43 @@ class SupabaseClient:
         """获取某任务的所有分配历史"""
         records = self._get_records("quest_assign", {"quest_id": quest_id})
         return QuestAssign.from_list(records) if records else None
+
+    # ========================== quest_material operations ==========================
+    def insert_quest_material(self, quest_material: QuestMaterial) -> bool:
+        """
+        插入任务材料记录
+
+        Args:
+            quest_material (QuestMaterial): 待插入的任务材料对象
+
+        Returns:
+            bool: 插入成功返回 True，失败返回 False
+        """
+        try:
+            res = (
+                self.client.table("quest_material")
+                .insert(quest_material.to_dict())
+                .execute()
+            )
+            return bool(getattr(res, "data", None))
+        except Exception as e:
+            logger.error(f"插入任务材料失败: {e}")
+            return False
+
+    def get_quest_materials_by_assign_id(
+        self, assign_id: str
+    ) -> list[QuestMaterial] | None:
+        """
+        获取任务分配的所有材料
+
+        Args:
+            assign_id (str): 任务分配ID
+
+        Returns:
+            list[QuestMaterial] | None: 返回材料列表，如果没有找到返回 None
+        """
+        records = self._get_records("quest_material", {"assign_id": assign_id})
+        return QuestMaterial.from_list(records) if records else None
 
     # ========================== system_log operations ==========================
     def insert_system_log(self, log: SystemLog) -> bool:

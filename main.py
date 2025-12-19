@@ -18,8 +18,8 @@ from .handlers.command_handlers import CommandHandlers
 from .handlers.llm_handlers import LLMHandlers
 from .handlers.event_handlers import EventHandlers
 
+
 # todo https://github.com/AstrBotDevs/AstrBot/issues/4108#issuecomment-3669179542 合并提交
-# todo 数据库重构
 @register("astrbot_plugin_association", "Orlando", "成为冒险者或成为委托人", "1.0.0")
 class AssociationPlugin(Star):
     """探险家协会插件主类"""

@@ -2,7 +2,7 @@ from dataclasses import dataclass, asdict, field
 from typing import Optional, List
 from datetime import datetime
 import uuid
-from ..domain.status import AdventurerStatus, QuestStatus
+from ..domain.status import AdventurerStatus, QuestAssignStatus
 
 
 def _parse_datetime(value) -> Optional[datetime]:
@@ -82,12 +82,10 @@ class Quest:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     created_at: Optional[datetime] = field(default_factory=datetime.now)
     clienter_id: Optional[str] = None
-    adventurer_id: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
     reward: Optional[float] = None
     deadline: Optional[datetime] = None
-    status: QuestStatus = field(default_factory=lambda: QuestStatus.PUBLISHED)
     updated_at: Optional[datetime] = None
 
     @staticmethod
@@ -96,12 +94,10 @@ class Quest:
             id=str(data["id"]),
             created_at=_parse_datetime(data.get("created_at")),
             clienter_id=data.get("clienter_id"),
-            adventurer_id=data.get("adventurer_id"),
             title=data.get("title"),
             description=data.get("description"),
             reward=data.get("reward"),
             deadline=_parse_datetime(data.get("deadline")),
-            status=QuestStatus(data.get("status", "PUBLISHED")),
             updated_at=_parse_datetime(data.get("updated_at")),
         )
 
@@ -111,7 +107,6 @@ class Quest:
 
     def to_dict(self) -> dict:
         d = asdict(self)
-        d["status"] = self.status.value
         d["created_at"] = (
             self.created_at.strftime("%Y-%m-%d %H:%M:%S") if self.created_at else None
         )
@@ -135,7 +130,6 @@ class Quest:
                 f"描述: {q.description}\n"
                 f"奖励: {q.reward}\n"
                 f"截止时间: {q.deadline.strftime('%Y-%m-%d %H:%M:%S') if q.deadline else '无'}\n"
-                f"状态: {q.status.cn if isinstance(q.status, QuestStatus) else q.status}\n"
                 f"创建时间: {q.created_at.strftime('%Y-%m-%d %H:%M:%S') if q.created_at else '未知'}\n"
                 f"{'-'*40}"
             )
@@ -149,8 +143,9 @@ class QuestAssign:
     quest_id: Optional[str] = None
     adventurer_id: Optional[str] = None
     assign_time: Optional[datetime] = field(default_factory=datetime.now)
-    finish_time: Optional[datetime] = None
-    status: str = "ONGOING"  # ONGOING, FINISHED, FORCED_END, TIMEOUT, CHECK_FINISHED
+    submit_time: Optional[datetime] = None
+    confirm_time: Optional[datetime] = None
+    status: str = "ONGOING"  # ONGOING, SUBMITTED, CONFIRMED, TIMEOUT, FORCED_END
 
     @staticmethod
     def from_dict(data: dict) -> "QuestAssign":
@@ -159,7 +154,8 @@ class QuestAssign:
             quest_id=data.get("quest_id"),
             adventurer_id=data.get("adventurer_id"),
             assign_time=_parse_datetime(data.get("assign_time")),
-            finish_time=_parse_datetime(data.get("finish_time")),
+            submit_time=_parse_datetime(data.get("submit_time")),
+            confirm_time=_parse_datetime(data.get("confirm_time")),
             status=data.get("status", "ONGOING"),
         )
 
@@ -172,8 +168,11 @@ class QuestAssign:
         d["assign_time"] = (
             self.assign_time.strftime("%Y-%m-%d %H:%M:%S") if self.assign_time else None
         )
-        d["finish_time"] = (
-            self.finish_time.strftime("%Y-%m-%d %H:%M:%S") if self.finish_time else None
+        d["submit_time"] = (
+            self.submit_time.strftime("%Y-%m-%d %H:%M:%S") if self.submit_time else None
+        )
+        d["confirm_time"] = (
+            self.confirm_time.strftime("%Y-%m-%d %H:%M:%S") if self.confirm_time else None
         )
         return d
 
@@ -202,5 +201,35 @@ class SystemLog:
         d = asdict(self)
         d["created_at"] = (
             self.created_at.strftime("%Y-%m-%d %H:%M:%S") if self.created_at else None
+        )
+        return d
+
+
+@dataclass
+class QuestMaterial:
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    quest_assign_id: Optional[str] = None
+    material_name: Optional[str] = None
+    file_path: Optional[str] = None
+    upload_time: Optional[datetime] = field(default_factory=datetime.now)
+
+    @staticmethod
+    def from_dict(data: dict) -> "QuestMaterial":
+        return QuestMaterial(
+            id=str(data["id"]),
+            quest_assign_id=data.get("quest_assign_id"),
+            material_name=data.get("material_name"),
+            file_path=data.get("file_path"),
+            upload_time=_parse_datetime(data.get("upload_time")),
+        )
+
+    @staticmethod
+    def from_list(datas: List[dict]) -> List["QuestMaterial"]:
+        return [QuestMaterial.from_dict(d) for d in datas]
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        d["upload_time"] = (
+            self.upload_time.strftime("%Y-%m-%d %H:%M:%S") if self.upload_time else None
         )
         return d

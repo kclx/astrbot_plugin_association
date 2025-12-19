@@ -7,7 +7,7 @@ from astrbot.api import logger
 
 from ..engine.supa_client import SupabaseClient
 from ..engine.association_client import AssociationClient
-from ..domain.status import AdventurerStatus, QuestStatus
+from ..domain.status import AdventurerStatus, QuestAssignStatus
 from ..domain.vo import Quest
 from ..utils.message_utils import MessageUtils
 
@@ -80,9 +80,9 @@ class LLMHandlers:
         adventurer = self.supa_client.get_adventurer_by_way_number(way, number)
         if not adventurer or adventurer.status != AdventurerStatus.IDLE:
             return "您现在貌似还有任务没有完成，或者您并未注册为冒险者。"
-        quests = self.supa_client.get_quests_by_status(QuestStatus.PUBLISHED)
+        quests = self.supa_client.get_available_quests()
         if not quests:
-            return "当前没有已发布的任务。"
+            return "当前没有可接取的任务。"
         return Quest.format_quests(quests)
 
     async def accept_task(self, event: AstrMessageEvent, quest_id: str) -> str:
@@ -124,9 +124,11 @@ class LLMHandlers:
         if adventurer.status != AdventurerStatus.WORKING:
             return "❌ 你当前没有正在进行的任务。"
 
-        quest = self.ass_client.get_running_quest_by_adventurer_id(adventurer.id)
-        if not quest:
+        result = self.ass_client.get_running_quest_by_adventurer_id(adventurer.id)
+        if not result:
             return "❌ 未找到你正在执行的任务。"
+
+        quest, quest_assign = result
 
         if not quest.clienter_id:
             return "❌ 未找到委托人。"
@@ -138,7 +140,6 @@ class LLMHandlers:
         if not updated_quest:
             return "❌ 任务提交失败，请检查状态或权限。"
 
-        quest.status = QuestStatus.COMPLETED
         await self.message_utils.send_message_to_users(
             [clienter],
             f"🔔 任务通知\n\n{Quest.format_quests([quest])} \n已由冒险者提交完成。\n请及时确认。",
@@ -158,15 +159,15 @@ class LLMHandlers:
         if not quest_id:
             return "❌ 任务 ID 不能为空。"
 
-        quest = self.ass_client.confirm_quest(clienter_id, quest_id)
-        if not quest or not quest.adventurer_id:
+        result = self.ass_client.confirm_quest(clienter_id, quest_id)
+        if not result:
             return "❌ 任务确认失败，请检查任务状态或权限。"
 
-        adventurer = self.supa_client.get_adventurer_by_id(quest.adventurer_id)
+        quest, adventurer_id = result
+
+        adventurer = self.supa_client.get_adventurer_by_id(adventurer_id)
         if not adventurer:
-            logger.warning(
-                f"任务 {quest_id} 已确认，但冒险者 {quest.adventurer_id} 不存在？"
-            )
+            logger.warning(f"任务 {quest_id} 已确认，但冒险者 {adventurer_id} 不存在？")
             return f"🎉 任务《{quest.title}》已确认完成，但冒险者信息缺失。"
 
         await self.message_utils.send_message_to_users(

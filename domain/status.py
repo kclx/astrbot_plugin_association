@@ -7,12 +7,13 @@ ADVENTURER_STATUS_CN_MAP = {
     "REST": "休息",
     "QUIT": "已离开或不再参与",
 }
-QUEST_STATUS_CN_MAP = {
-    "PUBLISHED": "已发布",
-    "ASSIGNED": "已接取",
-    "COMPLETED": "已完成",
-    "TIMEOUT": "超时未完成",
-    "CLOSED": "已关闭",
+
+QUEST_ASSIGN_STATUS_CN_MAP = {
+    "ONGOING": "执行中",
+    "SUBMITTED": "已提交",
+    "CONFIRMED": "已确认",
+    "TIMEOUT": "超时",
+    "FORCED_END": "强制终止",
 }
 
 
@@ -36,20 +37,20 @@ class AdventurerStatus(Enum):
         return None
 
 
-class QuestStatus(Enum):
-    PUBLISHED = "PUBLISHED"
-    ASSIGNED = "ASSIGNED"
-    COMPLETED = "COMPLETED"
+class QuestAssignStatus(Enum):
+    ONGOING = "ONGOING"
+    SUBMITTED = "SUBMITTED"
+    CONFIRMED = "CONFIRMED"
     TIMEOUT = "TIMEOUT"
-    CLOSED = "CLOSED"
+    FORCED_END = "FORCED_END"
 
     @property
     def cn(self) -> str:
-        return QUEST_STATUS_CN_MAP[self.value]
+        return QUEST_ASSIGN_STATUS_CN_MAP[self.value]
 
     @classmethod
     def from_cn(cls, text: str):
-        for key, val in QUEST_STATUS_CN_MAP.items():
+        for key, val in QUEST_ASSIGN_STATUS_CN_MAP.items():
             if val == text:
                 return cls(key)
         return None

@@ -2,7 +2,7 @@ from datetime import datetime
 
 from ..engine.supa_client import SupabaseClient
 
-from ..domain.status import AdventurerStatus, QuestStatus
+from ..domain.status import AdventurerStatus, QuestAssignStatus
 from ..domain.vo import Adventurer, Clienter, Quest, QuestAssign
 
 from astrbot.api import logger
@@ -137,7 +137,6 @@ class AssociationClient:
             description=description,
             reward=reward,
             deadline=deadline,
-            status=QuestStatus.PUBLISHED,
             created_at=datetime.now(),
         )
 
@@ -175,33 +174,41 @@ class AssociationClient:
         return adventurer.status
 
     # 任务相关
-    def get_quest_status_by_id(self, quest_id: str) -> QuestStatus | None:
+    def get_quest_assign_status_by_quest_adventurer(
+        self, quest_id: str, adventurer_id: str
+    ) -> QuestAssignStatus | None:
         """
-        根据任务ID获取任务的当前状态。
-
-        Args:
-            quest_id (str): 任务ID
-
-        Returns:
-            QuestStatus | None: 返回任务状态，如果未找到任务返回 None
-        """
-        quest = self.supa_client.get_quest_by_id(quest_id)
-        if not quest:
-            logger.warning(f"未找到任务: {quest_id}")
-            return None
-        return quest.status
-
-    def accept_quest_by_id(self, quest_id: str, adventurer_id: str) -> Quest | None:
-        """
-        冒险者接取任务，将任务状态设置为 ASSIGNED，并绑定冒险者ID，同时更新冒险者状态为 WORKING。
-        同时创建 quest_assign 记录。
+        根据任务ID和冒险者ID获取任务分配的当前状态。
 
         Args:
             quest_id (str): 任务ID
             adventurer_id (str): 冒险者ID
 
         Returns:
-            Quest | None: 返回更新后的任务实例，如果任务不存在或不可接取返回 None
+            QuestAssignStatus | None: 返回任务分配状态，如果未找到返回 None
+        """
+        quest_assigns = self.supa_client.get_quest_assigns_by_quest_id(quest_id)
+        if not quest_assigns:
+            logger.warning(f"未找到任务 {quest_id} 的分配记录")
+            return None
+
+        for qa in quest_assigns:
+            if qa.adventurer_id == adventurer_id:
+                return QuestAssignStatus(qa.status)
+
+        logger.warning(f"未找到冒险者 {adventurer_id} 对任务 {quest_id} 的分配记录")
+        return None
+
+    def accept_quest_by_id(self, quest_id: str, adventurer_id: str) -> Quest | None:
+        """
+        冒险者接取任务，创建任务分配记录并更新冒险者状态为 WORKING。
+
+        Args:
+            quest_id (str): 任务ID
+            adventurer_id (str): 冒险者ID
+
+        Returns:
+            Quest | None: 返回任务实例，如果任务不存在或已被接取返回 None
         """
         # 获取任务
         quest = self.supa_client.get_quest_by_id(quest_id)
@@ -209,38 +216,37 @@ class AssociationClient:
             logger.warning(f"任务 {quest_id} 不存在")
             return None
 
-        # 检查任务是否可接
-        if quest.status != QuestStatus.PUBLISHED:
-            logger.warning(f"任务 {quest_id} 状态为 {quest.status.cn}，无法接取")
-            return None
-
-        # 更新任务状态
-        quest.adventurer_id = adventurer_id
-        quest.status = QuestStatus.ASSIGNED
-        quest.updated_at = datetime.now()
-        updated = self.supa_client.update_quest(quest)
-        if not updated:
-            logger.error(f"更新任务 {quest_id} 失败")
-            return None
+        # 检查任务是否已被接取（通过 quest_assign 表查询 ONGOING 状态的记录）
+        existing_assigns = self.supa_client.get_quest_assigns_by_quest_id(quest_id)
+        if existing_assigns:
+            for assign in existing_assigns:
+                if assign.status == QuestAssignStatus.ONGOING.value:
+                    logger.warning(f"任务 {quest_id} 已被冒险者 {assign.adventurer_id} 接取")
+                    return None
 
         # 更新冒险者状态为 WORKING
         adventurer = self.supa_client.get_adventurer_by_id(adventurer_id)
-        if adventurer:
-            adventurer.status = AdventurerStatus.WORKING
-            adv_updated = self.supa_client.update_adventurer(adventurer)
-            if not adv_updated:
-                logger.error(f"更新冒险者 {adventurer_id} 状态失败")
-        else:
-            logger.warning(f"未找到冒险者 {adventurer_id}，无法更新状态")
+        if not adventurer:
+            logger.warning(f"未找到冒险者 {adventurer_id}")
+            return None
+
+        adventurer.status = AdventurerStatus.WORKING
+        if not self.supa_client.update_adventurer(adventurer):
+            logger.error(f"更新冒险者 {adventurer_id} 状态失败")
+            return None
 
         # 创建 quest_assign 记录
         quest_assign = QuestAssign(
             quest_id=quest_id,
             adventurer_id=adventurer_id,
-            status="ONGOING"
+            status=QuestAssignStatus.ONGOING.value
         )
         if not self.supa_client.insert_quest_assign(quest_assign):
             logger.error(f"创建任务分配记录失败: {quest_id} -> {adventurer_id}")
+            # 回滚冒险者状态
+            adventurer.status = AdventurerStatus.IDLE
+            self.supa_client.update_adventurer(adventurer)
+            return None
 
         # 记录系统日志
         self.supa_client.log_event(
@@ -252,47 +258,43 @@ class AssociationClient:
 
     def submit_quest(self, adventurer_id: str, quest_id: str) -> Quest | None:
         """
-        冒险者提交任务，将任务状态从 ASSIGNED 设置为 COMPLETED。
-        同时更新 quest_assign 记录状态为 FINISHED。
+        冒险者提交任务，更新 quest_assign 状态为 SUBMITTED，设置提交时间。
+        冒险者状态保持 WORKING 不变。
 
         Args:
             adventurer_id (str): 冒险者 ID
             quest_id (str): 任务 ID
 
         Returns:
-            Quest | None: 更新后的任务对象；失败返回 None
+            Quest | None: 返回任务对象；失败返回 None
         """
         # 获取任务
         quest = self.supa_client.get_quest_by_id(quest_id)
         if not quest:
             logger.warning(f"提交失败：任务 {quest_id} 不存在")
             return None
-        # 权限检查：必须是接取该任务的冒险者
-        if quest.adventurer_id != adventurer_id:
-            logger.warning(f"提交失败：冒险者 {adventurer_id} 无权提交任务 {quest_id}")
-            return None
-        # 状态检查
-        if quest.status != QuestStatus.ASSIGNED:
-            logger.warning(
-                f"提交失败：任务 {quest_id} 状态为 {quest.status.cn}，无法提交完成"
-            )
-            return None
-        # 更新任务
-        quest.status = QuestStatus.COMPLETED
-        quest.updated_at = datetime.now()
-        if not self.supa_client.update_quest(quest):
-            logger.error(f"提交失败：任务 {quest_id} 更新失败")
+
+        # 获取当前 ONGOING 状态的任务分配记录
+        quest_assign = self.supa_client.get_quest_assign_by_adventurer_status(
+            adventurer_id, QuestAssignStatus.ONGOING.value
+        )
+        if not quest_assign:
+            logger.warning(f"提交失败：冒险者 {adventurer_id} 没有正在执行的任务")
             return None
 
-        # 更新 quest_assign 记录
-        quest_assign = self.supa_client.get_quest_assign_by_adventurer_status(
-            adventurer_id, "ONGOING"
-        )
-        if quest_assign and quest_assign.quest_id == quest_id:
-            quest_assign.status = "FINISHED"
-            quest_assign.finish_time = datetime.now()
-            if not self.supa_client.update_quest_assign(quest_assign):
-                logger.error(f"更新任务分配记录失败: {quest_assign.id}")
+        # 权限检查：任务分配记录的任务ID必须匹配
+        if quest_assign.quest_id != quest_id:
+            logger.warning(
+                f"提交失败：冒险者 {adventurer_id} 当前执行的任务是 {quest_assign.quest_id}，不是 {quest_id}"
+            )
+            return None
+
+        # 更新 quest_assign 记录为 SUBMITTED 状态
+        quest_assign.status = QuestAssignStatus.SUBMITTED.value
+        quest_assign.submit_time = datetime.now()
+        if not self.supa_client.update_quest_assign(quest_assign):
+            logger.error(f"更新任务分配记录失败: {quest_assign.id}")
+            return None
 
         # 记录系统日志
         self.supa_client.log_event(
@@ -302,58 +304,60 @@ class AssociationClient:
 
         return quest
 
-    def confirm_quest(self, clienter_id: str, quest_id: str) -> Quest | None:
+    def confirm_quest(self, clienter_id: str, quest_id: str) -> tuple[Quest, str] | None:
         """
-        委托人确认任务完成，将任务状态从 COMPLETED 设置为 CLOSED。
-        同时将冒险者状态设为 IDLE，并更新 quest_assign 为 CHECK_FINISHED。
+        委托人确认任务完成，更新 quest_assign 状态为 CONFIRMED，设置确认时间。
+        同时将冒险者状态设为 IDLE。
 
         Args:
             clienter_id (str): 委托人 ID
             quest_id (str): 任务 ID
 
         Returns:
-            Quest | None: 更新后的任务对象；失败返回 None
+            tuple[Quest, str] | None: 返回 (任务对象, 冒险者ID)；失败返回 None
         """
         # 获取任务
         quest = self.supa_client.get_quest_by_id(quest_id)
         if not quest:
             logger.warning(f"确认失败：任务 {quest_id} 不存在")
             return None
+
         # 权限检查：必须是任务的委托人
         if quest.clienter_id != clienter_id:
             logger.warning(f"确认失败：委托人 {clienter_id} 无权确认任务 {quest_id}")
             return None
-        # 状态检查
-        if quest.status != QuestStatus.COMPLETED:
-            logger.warning(
-                f"确认失败：任务 {quest_id} 状态为 {quest.status.cn}，无法确认完成"
-            )
+
+        # 查找该任务的 SUBMITTED 状态的分配记录
+        quest_assigns = self.supa_client.get_quest_assigns_by_quest_id(quest_id)
+        if not quest_assigns:
+            logger.warning(f"确认失败：任务 {quest_id} 没有分配记录")
             return None
-        # 设置任务为 CLOSED
-        quest.status = QuestStatus.CLOSED
-        quest.updated_at = datetime.now()
-        if not self.supa_client.update_quest(quest):
-            logger.error(f"确认失败：任务 {quest_id} 设置 CLOSED 失败")
+
+        submitted_assign = None
+        for qa in quest_assigns:
+            if qa.status == QuestAssignStatus.SUBMITTED.value:
+                submitted_assign = qa
+                break
+
+        if not submitted_assign:
+            logger.warning(f"确认失败：任务 {quest_id} 没有已提交的分配记录")
             return None
-        if not quest.adventurer_id:
-            logger.warning(f"确认失败：任务 {quest_id} 的冒险者不存在")
+
+        # 更新 quest_assign 为 CONFIRMED 状态
+        submitted_assign.status = QuestAssignStatus.CONFIRMED.value
+        submitted_assign.confirm_time = datetime.now()
+        if not self.supa_client.update_quest_assign(submitted_assign):
+            logger.error(f"更新任务分配记录失败: {submitted_assign.id}")
             return None
-        # 更新冒险者状态
-        adventurer = self.supa_client.get_adventurer_by_id(quest.adventurer_id)
+
+        # 更新冒险者状态为 IDLE
+        adventurer = self.supa_client.get_adventurer_by_id(submitted_assign.adventurer_id)
         if adventurer:
             adventurer.status = AdventurerStatus.IDLE
-            self.supa_client.update_adventurer(adventurer)
+            if not self.supa_client.update_adventurer(adventurer):
+                logger.error(f"更新冒险者 {submitted_assign.adventurer_id} 状态失败")
         else:
-            logger.warning(f"未找到冒险者 {quest.adventurer_id}，无法更新其状态")
-
-        # 更新 quest_assign 到 CHECK_FINISHED
-        quest_assign = self.supa_client.get_quest_assign_by_adventurer_status(
-            quest.adventurer_id, "FINISHED"
-        )
-        if quest_assign and quest_assign.quest_id == quest_id:
-            quest_assign.status = "CHECK_FINISHED"
-            if not self.supa_client.update_quest_assign(quest_assign):
-                logger.error(f"更新任务分配记录失败: {quest_assign.id}")
+            logger.warning(f"未找到冒险者 {submitted_assign.adventurer_id}，无法更新其状态")
 
         # 记录系统日志
         self.supa_client.log_event(
@@ -361,9 +365,29 @@ class AssociationClient:
             detail=f"委托人 {clienter_id} 确认任务 {quest_id} 完成"
         )
 
-        return quest
+        return quest, submitted_assign.adventurer_id
 
-    def get_running_quest_by_adventurer_id(self, adventurer_id: str) -> Quest | None:
-        return self.supa_client.get_quest_by_adventurer_id_status(
-            adventurer_id, QuestStatus.ASSIGNED
-        )
+    def get_running_quest_by_adventurer_id(
+        self, adventurer_id: str
+    ) -> tuple[Quest, QuestAssign] | None:
+        """
+        获取冒险者当前正在执行的任务及其分配记录。
+
+        Args:
+            adventurer_id (str): 冒险者ID
+
+        Returns:
+            tuple[Quest, QuestAssign] | None: 返回 (任务对象, 任务分配记录)；未找到返回 None
+        """
+        # 获取冒险者当前 ONGOING 状态的任务分配记录
+        quest_assign = self.supa_client.get_active_quest_assign_by_adventurer(adventurer_id)
+        if not quest_assign:
+            return None
+
+        # 获取对应的任务
+        quest = self.supa_client.get_quest_by_id(quest_assign.quest_id)
+        if not quest:
+            logger.warning(f"任务分配记录 {quest_assign.id} 指向的任务 {quest_assign.quest_id} 不存在")
+            return None
+
+        return quest, quest_assign
