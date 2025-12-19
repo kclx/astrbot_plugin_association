@@ -1,6 +1,6 @@
 name: astrbot_plugin_association
 display_name: 探险家协会
-desc: 成为冒险者或成为委托人
+desc: 探险家协会是一个基于 AstrBot 框架的插件，实现了类似游戏中公会任务系统的完整功能。用户可以注册为**冒险者**（接取任务）或**委托人**（发布任务），通过跨平台消息系统（支持 Telegram、QQ）完成任务发布、接取、提交、确认的完整生命周期。
 version: v1.0.0
 author: Orlando
-repo: 
+repo: https://github.com/kclx/astrbot_plugin_association

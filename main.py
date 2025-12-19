@@ -18,7 +18,8 @@ from .handlers.command_handlers import CommandHandlers
 from .handlers.llm_handlers import LLMHandlers
 from .handlers.event_handlers import EventHandlers
 
-
+# todo https://github.com/AstrBotDevs/AstrBot/issues/4108#issuecomment-3669179542 合并提交
+# todo 数据库重构
 @register("astrbot_plugin_association", "Orlando", "成为冒险者或成为委托人", "1.0.0")
 class AssociationPlugin(Star):
     """探险家协会插件主类"""
@@ -142,7 +143,9 @@ class AssociationPlugin(Star):
         is_first_time, cid = await self._ensure_guild_conversation(event)
         if is_first_time:
             # 设置冒险者人格
-            adventurer_personality_id = self.config.get("adventurer_personality_id", None)
+            adventurer_personality_id = self.config.get(
+                "adventurer_personality_id", None
+            )
             if adventurer_personality_id:
                 await self.context.conversation_manager.update_conversation(
                     event.unified_msg_origin, cid, persona_id=adventurer_personality_id
