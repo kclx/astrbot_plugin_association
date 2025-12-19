@@ -7,7 +7,7 @@ from astrbot.api import logger
 
 from ..engine.supa_client import SupabaseClient
 from ..engine.association_client import AssociationClient
-from ..domain.status import AdventurerStatus, QuestAssignStatus
+from ..domain.status import AdventurerStatus
 from ..domain.vo import Quest
 from ..utils.message_utils import MessageUtils
 

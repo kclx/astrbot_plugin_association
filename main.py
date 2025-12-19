@@ -1,13 +1,14 @@
 """探险家协会插件主文件"""
 
-import os
+from pathlib import Path
 
 from astrbot.api.star import Context, Star, register
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api import logger
-from astrbot.core.config.astrbot_config import AstrBotConfig
-from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from astrbot.api import message_components as Comp
+from astrbot.core.config.astrbot_config import AstrBotConfig
+from astrbot.core.star.star_tools import StarTools
+
 
 from .engine.supa_client import SupabaseClient
 from .engine.association_client import AssociationClient
@@ -19,13 +20,10 @@ from .handlers.llm_handlers import LLMHandlers
 from .handlers.event_handlers import EventHandlers
 
 
-# todo https://github.com/AstrBotDevs/AstrBot/issues/4108#issuecomment-3669179542 合并提交
+# todo https://github.com/AstrBotDevs/AstrBot/issues/4108#issuecomment-3669179542
 @register("astrbot_plugin_association", "Orlando", "成为冒险者或成为委托人", "1.0.0")
 class AssociationPlugin(Star):
     """探险家协会插件主类"""
-
-    NAME: str = "astrbot_plugin_association"
-    SAVE_DIR: str = os.path.join(get_astrbot_data_path(), "plugin_data", NAME)
 
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -34,6 +32,9 @@ class AssociationPlugin(Star):
 
     async def initialize(self):
         """初始化插件，创建所有处理器实例"""
+        # 初始化存储位置
+        self.save_dir: Path = StarTools.get_data_dir()
+
         # 初始化数据库客户端
         self.supa_client = SupabaseClient(
             self.config.get("supabase_url", None),
@@ -42,11 +43,11 @@ class AssociationPlugin(Star):
         self.ass_client = AssociationClient(self.supa_client)
 
         # 初始化工具类
-        self.session_manager = SessionManager(self.SAVE_DIR)
+        self.session_manager = SessionManager(self.save_dir)
         self.message_utils = MessageUtils(
             self.context, self.config, self.session_manager
         )
-        self.file_utils = FileUtils(self.SAVE_DIR)
+        self.file_utils = FileUtils(self.save_dir)
 
         # 初始化处理器
         self.command_handlers = CommandHandlers(self.ass_client, self.message_utils)
@@ -56,6 +57,7 @@ class AssociationPlugin(Star):
         self.event_handlers = EventHandlers(self.file_utils)
 
         logger.info("Adventurer plugin initialized.")
+        logger.info(f"save path: {self.save_dir}")
         logger.info(f"supa id: {self.supa_client.url}.")
 
     async def terminate(self):
@@ -275,9 +277,9 @@ class AssociationPlugin(Star):
             Comp.Image.fromURL(
                 "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRb-CIA1N7aGu8ouN7NGSvmXq46hKPOqTD45w&s"
             ),
-            Comp.Image.fromFileSystem(f"{self.SAVE_DIR}/2481534548/图片-2.jpg"),
+            Comp.Image.fromFileSystem(f"{self.save_dir}/2481534548/图片-2.jpg"),
             Comp.File(
-                file=f"{self.SAVE_DIR}/2481534548/雅音宫羽.txt", name="雅音宫羽.txt"
+                file=f"{self.save_dir}/2481534548/雅音宫羽.txt", name="雅音宫羽.txt"
             ),
             Comp.Plain("这是一个图片。"),
         ]

@@ -2,6 +2,7 @@
 
 import json
 import os
+from pathlib import Path
 from typing import Dict
 from astrbot.api import logger
 
@@ -9,7 +10,7 @@ from astrbot.api import logger
 class SessionManager:
     """管理每个用户 (unified_msg_origin) 的默认对话 conversation ID"""
 
-    def __init__(self, save_dir: str):
+    def __init__(self, save_dir: str | Path):
         """初始化 SessionManager
 
         Args:

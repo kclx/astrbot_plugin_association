@@ -1,6 +1,7 @@
 """文件处理工具类"""
 
 import os
+from pathlib import Path
 from astrbot.api import logger
 from astrbot.core.message.components import File
 from astrbot.core.utils.io import download_file
@@ -9,7 +10,7 @@ from astrbot.core.utils.io import download_file
 class FileUtils:
     """文件处理工具类"""
 
-    def __init__(self, save_dir: str):
+    def __init__(self, save_dir: str | Path):
         self.save_dir = save_dir
 
     async def download_user_file(self, user_id: str, file_msg: File) -> str | None:

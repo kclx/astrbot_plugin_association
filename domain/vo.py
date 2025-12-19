@@ -2,7 +2,7 @@ from dataclasses import dataclass, asdict, field
 from typing import Optional, List
 from datetime import datetime
 import uuid
-from ..domain.status import AdventurerStatus, QuestAssignStatus
+from ..domain.status import AdventurerStatus
 
 
 def _parse_datetime(value) -> Optional[datetime]:
