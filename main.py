@@ -50,7 +50,9 @@ class AssociationPlugin(Star):
         self.file_utils = FileUtils(self.save_dir)
 
         # 初始化处理器
-        self.command_handlers = CommandHandlers(self.ass_client, self.message_utils)
+        self.command_handlers = CommandHandlers(
+            self.ass_client, self.message_utils, self.file_utils
+        )
         self.llm_handlers = LLMHandlers(
             self.supa_client, self.ass_client, self.message_utils
         )
@@ -284,3 +286,13 @@ class AssociationPlugin(Star):
             Comp.Plain("这是一个图片。"),
         ]
         yield event.chain_result(chain)
+
+    @filter.llm_tool("upload_attachments")
+    async def upload_attachments(self, event: AstrMessageEvent, quest_id: str):
+        """上传附件用于委托人发布或者冒险者提交委托
+
+        Args:
+            quest_id (str): 绑定任务ID
+        """
+        async for result in self.command_handlers.upload_attachments(event, quest_id):
+            yield result

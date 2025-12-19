@@ -1,9 +1,13 @@
 from datetime import datetime
+import os
+from pathlib import Path
+from typing import List
+import uuid
 
 from ..engine.supa_client import SupabaseClient
 
-from ..domain.status import AdventurerStatus, QuestAssignStatus
-from ..domain.vo import Adventurer, Clienter, Quest, QuestAssign
+from ..domain.status import AdventurerStatus, QuestAssignStatus, QuestMaterialType
+from ..domain.vo import Adventurer, Clienter, Quest, QuestAssign, QuestMaterial
 
 from astrbot.api import logger
 
@@ -143,13 +147,81 @@ class AssociationClient:
         try:
             success = self.supa_client.insert_quest(quest)
             if success:
-                return quest
+                quest_assign = QuestAssign(
+                    quest_id=quest.id,
+                )
+                success = self.supa_client.insert_quest_assign(quest_assign)
+                if success:
+                    return quest
             else:
                 logger.error("任务注册失败：数据库插入失败")
                 return None
         except Exception as e:
             logger.error(f"任务注册失败: {e}")
             return None
+
+    def save_quest_attachment(
+        self, quest_id: str, file_path: str, type: QuestMaterialType
+    ) -> QuestMaterial | None:
+        """保存单个任务附件
+
+        Args:
+            quest_id: 任务ID
+            path: 文件路径（字符串或Path对象）
+            type: 附件类型（ILLUSTRATE或PROOF）
+
+        Returns:
+            QuestMaterial | None: 成功返回材料对象，失败返回None
+        """
+        # 确保path是Path对象以便获取suffix
+        path_obj = Path(file_path) if isinstance(file_path, str) else file_path
+
+        qm = QuestMaterial(
+            quest_id=quest_id,
+            material_name=os.path.basename(path_obj),
+            file_path=str(path_obj),  # 转换为字符串存储
+            type=type.value,  # 使用枚举的值
+        )
+        try:
+            success = self.supa_client.insert_quest_material(qm)
+            if success:
+                return qm
+            else:
+                logger.error("任务材料注册失败：数据库插入失败")
+                return None
+        except Exception as e:
+            logger.error(f"任务材料注册失败: {e}")
+            return None
+
+    def save_quest_attachments(
+        self, quest_id: str, paths: List[tuple[str | Path, QuestMaterialType]]
+    ) -> List[QuestMaterial]:
+        """批量保存任务附件
+
+        Args:
+            quest_id: 任务ID
+            paths: 文件路径和类型的元组列表
+
+        Returns:
+            List[QuestMaterial]: 成功保存的材料对象列表
+        """
+        results = []
+        for path, material_type in paths:
+            qm = self.save_quest_attachment(quest_id, path, material_type)
+            if qm:
+                results.append(qm)
+        return results
+
+    def get_quest_attachments(
+        self, quest_id: str, type: QuestMaterialType
+    ) -> List[QuestMaterial] | None:
+        materials = self.supa_client.get_quest_materials_by_quest_id_type(
+            quest_id, type
+        )
+        if not materials:
+            logger.warning(f"未找到附件: {quest_id} - {type.cn}")
+            return None
+        return materials
 
     # 冒险者相关
     def get_adventurer_status_by_id(
@@ -221,7 +293,9 @@ class AssociationClient:
         if existing_assigns:
             for assign in existing_assigns:
                 if assign.status == QuestAssignStatus.ONGOING.value:
-                    logger.warning(f"任务 {quest_id} 已被冒险者 {assign.adventurer_id} 接取")
+                    logger.warning(
+                        f"任务 {quest_id} 已被冒险者 {assign.adventurer_id} 接取"
+                    )
                     return None
 
         # 更新冒险者状态为 WORKING
@@ -239,7 +313,7 @@ class AssociationClient:
         quest_assign = QuestAssign(
             quest_id=quest_id,
             adventurer_id=adventurer_id,
-            status=QuestAssignStatus.ONGOING.value
+            status=QuestAssignStatus.ONGOING.value,
         )
         if not self.supa_client.insert_quest_assign(quest_assign):
             logger.error(f"创建任务分配记录失败: {quest_id} -> {adventurer_id}")
@@ -250,8 +324,7 @@ class AssociationClient:
 
         # 记录系统日志
         self.supa_client.log_event(
-            event="接取任务",
-            detail=f"冒险者 {adventurer_id} 接取任务 {quest_id}"
+            event="接取任务", detail=f"冒险者 {adventurer_id} 接取任务 {quest_id}"
         )
 
         return quest
@@ -298,13 +371,14 @@ class AssociationClient:
 
         # 记录系统日志
         self.supa_client.log_event(
-            event="提交任务",
-            detail=f"冒险者 {adventurer_id} 提交任务 {quest_id}"
+            event="提交任务", detail=f"冒险者 {adventurer_id} 提交任务 {quest_id}"
         )
 
         return quest
 
-    def confirm_quest(self, clienter_id: str, quest_id: str) -> tuple[Quest, str] | None:
+    def confirm_quest(
+        self, clienter_id: str, quest_id: str
+    ) -> tuple[Quest, str] | None:
         """
         委托人确认任务完成，更新 quest_assign 状态为 CONFIRMED，设置确认时间。
         同时将冒险者状态设为 IDLE。
@@ -351,18 +425,21 @@ class AssociationClient:
             return None
 
         # 更新冒险者状态为 IDLE
-        adventurer = self.supa_client.get_adventurer_by_id(submitted_assign.adventurer_id)
+        adventurer = self.supa_client.get_adventurer_by_id(
+            submitted_assign.adventurer_id
+        )
         if adventurer:
             adventurer.status = AdventurerStatus.IDLE
             if not self.supa_client.update_adventurer(adventurer):
                 logger.error(f"更新冒险者 {submitted_assign.adventurer_id} 状态失败")
         else:
-            logger.warning(f"未找到冒险者 {submitted_assign.adventurer_id}，无法更新其状态")
+            logger.warning(
+                f"未找到冒险者 {submitted_assign.adventurer_id}，无法更新其状态"
+            )
 
         # 记录系统日志
         self.supa_client.log_event(
-            event="确认任务",
-            detail=f"委托人 {clienter_id} 确认任务 {quest_id} 完成"
+            event="确认任务", detail=f"委托人 {clienter_id} 确认任务 {quest_id} 完成"
         )
 
         return quest, submitted_assign.adventurer_id
@@ -380,14 +457,18 @@ class AssociationClient:
             tuple[Quest, QuestAssign] | None: 返回 (任务对象, 任务分配记录)；未找到返回 None
         """
         # 获取冒险者当前 ONGOING 状态的任务分配记录
-        quest_assign = self.supa_client.get_active_quest_assign_by_adventurer(adventurer_id)
+        quest_assign = self.supa_client.get_active_quest_assign_by_adventurer(
+            adventurer_id
+        )
         if not quest_assign:
             return None
 
         # 获取对应的任务
         quest = self.supa_client.get_quest_by_id(quest_assign.quest_id)
         if not quest:
-            logger.warning(f"任务分配记录 {quest_assign.id} 指向的任务 {quest_assign.quest_id} 不存在")
+            logger.warning(
+                f"任务分配记录 {quest_assign.id} 指向的任务 {quest_assign.quest_id} 不存在"
+            )
             return None
 
         return quest, quest_assign

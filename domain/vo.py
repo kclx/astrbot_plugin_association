@@ -2,8 +2,7 @@ from dataclasses import dataclass, asdict, field
 from typing import Optional, List
 from datetime import datetime
 import uuid
-from ..domain.status import AdventurerStatus
-
+from ..domain.status import AdventurerStatus, QuestMaterialType, QuestAssignStatus
 
 def _parse_datetime(value) -> Optional[datetime]:
     """统一处理 datetime 字符串/对象"""
@@ -145,7 +144,9 @@ class QuestAssign:
     assign_time: Optional[datetime] = field(default_factory=datetime.now)
     submit_time: Optional[datetime] = None
     confirm_time: Optional[datetime] = None
-    status: str = "ONGOING"  # ONGOING, SUBMITTED, CONFIRMED, TIMEOUT, FORCED_END
+    status: QuestAssignStatus = (
+        QuestAssignStatus.UNANSWERED
+    )  # ONGOING, SUBMITTED, CONFIRMED, TIMEOUT, FORCED_END
 
     @staticmethod
     def from_dict(data: dict) -> "QuestAssign":
@@ -156,7 +157,7 @@ class QuestAssign:
             assign_time=_parse_datetime(data.get("assign_time")),
             submit_time=_parse_datetime(data.get("submit_time")),
             confirm_time=_parse_datetime(data.get("confirm_time")),
-            status=data.get("status", "ONGOING"),
+            status=data.get("status", "UNANSWERED"),
         )
 
     @staticmethod
@@ -172,8 +173,12 @@ class QuestAssign:
             self.submit_time.strftime("%Y-%m-%d %H:%M:%S") if self.submit_time else None
         )
         d["confirm_time"] = (
-            self.confirm_time.strftime("%Y-%m-%d %H:%M:%S") if self.confirm_time else None
+            self.confirm_time.strftime("%Y-%m-%d %H:%M:%S")
+            if self.confirm_time
+            else None
         )
+        # 将枚举转换为字符串值
+        d["status"] = self.status.value if isinstance(self.status, QuestAssignStatus) else self.status
         return d
 
 
@@ -208,19 +213,21 @@ class SystemLog:
 @dataclass
 class QuestMaterial:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    quest_assign_id: Optional[str] = None
+    quest_id: Optional[str] = None
     material_name: Optional[str] = None
     file_path: Optional[str] = None
     upload_time: Optional[datetime] = field(default_factory=datetime.now)
+    type: str = QuestMaterialType.NONE
 
     @staticmethod
     def from_dict(data: dict) -> "QuestMaterial":
         return QuestMaterial(
             id=str(data["id"]),
-            quest_assign_id=data.get("quest_assign_id"),
+            quest_id=data.get("quest_id"),
             material_name=data.get("material_name"),
             file_path=data.get("file_path"),
             upload_time=_parse_datetime(data.get("upload_time")),
+            type=data.get("type", "NONE"),
         )
 
     @staticmethod

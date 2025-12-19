@@ -9,11 +9,18 @@ ADVENTURER_STATUS_CN_MAP = {
 }
 
 QUEST_ASSIGN_STATUS_CN_MAP = {
+    "UNANSWERED": "未接取",
     "ONGOING": "执行中",
     "SUBMITTED": "已提交",
     "CONFIRMED": "已确认",
     "TIMEOUT": "超时",
     "FORCED_END": "强制终止",
+}
+
+QUEST_MATERIAL_TYPE_CN_MAP = {
+    "ILLUSTRATE": "需求",
+    "PROOF": "证明",
+    "NONE": "未知",
 }
 
 
@@ -38,6 +45,7 @@ class AdventurerStatus(Enum):
 
 
 class QuestAssignStatus(Enum):
+    UNANSWERED = "UNANSWERED"
     ONGOING = "ONGOING"
     SUBMITTED = "SUBMITTED"
     CONFIRMED = "CONFIRMED"
@@ -51,6 +59,23 @@ class QuestAssignStatus(Enum):
     @classmethod
     def from_cn(cls, text: str):
         for key, val in QUEST_ASSIGN_STATUS_CN_MAP.items():
+            if val == text:
+                return cls(key)
+        return None
+
+
+class QuestMaterialType(Enum):
+    ILLUSTRATE = "ILLUSTRATE"
+    PROOF = "PROOF"
+    NONE = "NONE"
+
+    @property
+    def cn(self) -> str:
+        return QUEST_MATERIAL_TYPE_CN_MAP[self.value]
+
+    @classmethod
+    def from_cn(cls, text: str):
+        for key, val in QUEST_MATERIAL_TYPE_CN_MAP.items():
             if val == text:
                 return cls(key)
         return None

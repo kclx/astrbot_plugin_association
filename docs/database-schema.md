@@ -67,7 +67,7 @@ CREATE TABLE quest_assign (
     assign_time   TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '任务接取时间',
     submit_time   TIMESTAMP COMMENT '任务提交时间',
     confirm_time  TIMESTAMP COMMENT '任务确认完成时间',
-    status        VARCHAR(20) DEFAULT 'ONGOING' CHECK (status IN ('ONGOING', 'SUBMITTED', 'CONFIRMED', 'FORCED_END', 'TIMEOUT')) COMMENT '任务分配状态：ONGOING=执行中, SUBMITTED=已提交, CONFIRMED=已确认, FORCED_END=强制终止, TIMEOUT=超时',
+    status        VARCHAR(20) DEFAULT 'ONGOING' CHECK (status IN ('UNANSWERED', 'ONGOING', 'SUBMITTED', 'CONFIRMED', 'FORCED_END', 'TIMEOUT')) COMMENT '任务分配状态：UNANSWERED=未接取, ONGOING=执行中, SUBMITTED=已提交, CONFIRMED=已确认, FORCED_END=强制终止, TIMEOUT=超时',
 
     FOREIGN KEY (quest_id) REFERENCES quest(id) ON DELETE CASCADE,
     FOREIGN KEY (adventurer_id) REFERENCES adventurer(id) ON DELETE CASCADE
@@ -103,12 +103,13 @@ CREATE UNIQUE INDEX uq_adventurer_active_quest
 ```sql
 CREATE TABLE quest_material (
     id              VARCHAR(36) PRIMARY KEY COMMENT '材料ID，UUID',
-    quest_assign_id VARCHAR(36) NOT NULL COMMENT '关联任务分配记录ID',
+    quest_id        VARCHAR(36) NOT NULL COMMENT '关联任务ID',
     material_name   VARCHAR(100) NOT NULL COMMENT '材料名称',
     file_path       TEXT COMMENT '材料文件路径',
     upload_time     TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '材料上传时间',
+    type            VARCHAR(20) DEFAULT 'NONE' CHECK (type IN ('ILLUSTRATE', 'PROOF', 'NONE')) COMMENT '附件种类：ILLUSTRATE=任务需求, PROOF=任务完成证明',
 
-    FOREIGN KEY (quest_assign_id) REFERENCES quest_assign(id) ON DELETE CASCADE
+    FOREIGN KEY (quest_id) REFERENCES quest(id) ON DELETE CASCADE
 ) COMMENT='任务材料表，记录冒险者提交的任务材料及文件';
 ```
 
@@ -153,13 +154,20 @@ CREATE TABLE system_log (
    - 委托人创建任务，记录插入 `quest` 表
    - 系统自动推送给所有 IDLE 状态的冒险者
 
-2. **ONGOING**（执行中）
+2. **UNANSWERED**（未接取）
 
-   - 冒险者接取任务，在 `quest_assign` 表创建记录，状态为 `ONGOING`
+   - 任务已发布但尚未被冒险者接取
+   - 可选：在 `quest_assign` 表预创建记录，状态为 `UNANSWERED`
+   - 或者不创建记录，仅在 `quest` 表中存在
+   - 任务对所有符合条件的冒险者可见
+
+3. **ONGOING**（执行中）
+
+   - 冒险者接取任务，在 `quest_assign` 表创建记录（或更新状态为 `ONGOING`）
    - 冒险者状态（`adventurer.status`）变为 `WORKING`
    - `quest_assign.assign_time` 记录接取时间
 
-3. **SUBMITTED**（已提交）
+4. **SUBMITTED**（已提交）
 
    - 冒险者完成任务并提交
    - `quest_assign.status` 更新为 `SUBMITTED`
@@ -167,7 +175,7 @@ CREATE TABLE system_log (
    - 可选：在 `quest_material` 表中记录提交的材料
    - 系统通知委托人任务已提交
 
-4. **CONFIRMED**（已确认）
+5. **CONFIRMED**（已确认）
    - 委托人确认任务完成
    - `quest_assign.status` 更新为 `CONFIRMED`
    - `quest_assign.confirm_time` 记录确认时间
@@ -176,13 +184,13 @@ CREATE TABLE system_log (
 
 ### 异常流程
 
-5. **TIMEOUT**（超时）
+6. **TIMEOUT**（超时）
 
    - 任务超过 `quest.deadline` 仍未完成
    - `quest_assign.status` 更新为 `TIMEOUT`
    - 冒险者状态恢复为 `IDLE`
 
-6. **FORCED_END**（强制终止）
+7. **FORCED_END**（强制终止）
    - 冒险者在任务执行期间选择休息或退出
    - `quest_assign.status` 更新为 `FORCED_END`
    - 冒险者状态更新为 `REST` 或 `QUIT`
@@ -193,9 +201,9 @@ CREATE TABLE system_log (
 ```
 quest_assign.status 状态转移：
 
-ONGOING ────┐
-            ├──→ SUBMITTED ──→ CONFIRMED（正常完成）
-            │
+UNANSWERED ──→ ONGOING ────┐
+                           ├──→ SUBMITTED ──→ CONFIRMED（正常完成）
+                           │
             ├──→ TIMEOUT（超时）
             │
             └──→ FORCED_END（强制终止）

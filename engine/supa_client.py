@@ -1,8 +1,6 @@
-import os
-
 from supabase import create_client, Client
 
-from ..domain.status import AdventurerStatus, QuestAssignStatus
+from ..domain.status import AdventurerStatus, QuestAssignStatus, QuestMaterialType
 from ..domain.vo import (
     Adventurer,
     Clienter,
@@ -151,23 +149,18 @@ class SupabaseClient:
         Returns:
             list[Quest] | None: 返回任务列表，如果没有找到返回 None
         """
-        # 获取所有任务
-        all_quests_records = self._get_records("quest", {})
-        if not all_quests_records:
+        # 获取所有 UNANSWERED 状态的任务分配记录
+        ongoing_assigns = self.get_quest_assigns_by_status(QuestAssignStatus.UNANSWERED)
+
+        if not ongoing_assigns:
             return None
 
-        # 获取所有 ONGOING 状态的任务分配记录
-        ongoing_assigns = self.get_quest_assigns_by_status(QuestAssignStatus.ONGOING)
-        ongoing_quest_ids = set()
-        if ongoing_assigns:
-            ongoing_quest_ids = {qa.quest_id for qa in ongoing_assigns}
-
-        # 过滤出没有 ONGOING 分配的任务
-        available_quests = [
-            Quest.from_dict(q)
-            for q in all_quests_records
-            if q["id"] not in ongoing_quest_ids
-        ]
+        # 获取对应的任务并转换为 Quest 对象
+        available_quests = []
+        for assign in ongoing_assigns:
+            quest_dict = self._get_single_record("quest", {"id": assign.quest_id})
+            if quest_dict:
+                available_quests.append(Quest.from_dict(quest_dict))
 
         return available_quests if available_quests else None
 
@@ -417,8 +410,8 @@ class SupabaseClient:
             logger.error(f"插入任务材料失败: {e}")
             return False
 
-    def get_quest_materials_by_assign_id(
-        self, assign_id: str
+    def get_quest_materials_by_quest_id_type(
+        self, quest_id: str, type: QuestMaterialType
     ) -> list[QuestMaterial] | None:
         """
         获取任务分配的所有材料
@@ -429,7 +422,9 @@ class SupabaseClient:
         Returns:
             list[QuestMaterial] | None: 返回材料列表，如果没有找到返回 None
         """
-        records = self._get_records("quest_material", {"assign_id": assign_id})
+        records = self._get_records(
+            "quest_material", {"quest_id": quest_id, "type": type.value}
+        )
         return QuestMaterial.from_list(records) if records else None
 
     # ========================== system_log operations ==========================

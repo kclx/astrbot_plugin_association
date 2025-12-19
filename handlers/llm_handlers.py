@@ -69,7 +69,9 @@ class LLMHandlers:
         if adventurers:
             quest_text = Quest.format_quests([quest])
             await self.message_utils.send_message_to_users(adventurers, quest_text)
-        return f"任务《{quest.title}》发布成功，并已推送给空闲的冒险者。"
+        return (
+            f"任务《{quest.title}》发布成功，id：{quest.id}，并已推送给空闲的冒险者。"
+        )
 
     async def fetch_quests_published(self, event: AstrMessageEvent) -> str:
         """获取所有已发布且可供冒险者接取的任务列表。
@@ -144,7 +146,7 @@ class LLMHandlers:
             [clienter],
             f"🔔 任务通知\n\n{Quest.format_quests([quest])} \n已由冒险者提交完成。\n请及时确认。",
         )
-        return f"✅ 任务《{quest.title}》已成功提交！\n📨 已通知委托人确认。"
+        return f"✅ 任务《{quest.title}》已成功提交！\nid: {quest.id}\n📨 已通知委托人确认。"
 
     async def confirm_quest(self, event: AstrMessageEvent, quest_id: str) -> str:
         """委托人确认任务完成。
